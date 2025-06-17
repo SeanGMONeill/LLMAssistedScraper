@@ -1,0 +1,22 @@
+{
+    "prompt": [
+        {
+            "role": "system",
+            "content": [
+                "You are a web-scraping assistant that analyzes Markdown-formatted content about West End theatre productions. ",
+                "Your job is to detect structured cast information — not just names in prose — and output structured JSON."
+            ]
+        },
+        {
+            "role": "user",
+            "content": [
+                "Analyze the Markdown below and return a raw JSON object with theis boolean fields:\n\n",
+                "- `appears_to_have_all_data`: true if a full or near-full cast list is present, showing both actor and role\n\n",
+                "If and only if 'appears_to_have_all_data' is true, also include a key `extracted_data`, which is a list of objects in the format:\n",
+                "`[{\"actor\": \"John Smith\", \"role\": \"Hamlet\"}, ...]`\n\n",
+                "Do not include this key if the boolean is false. Do not include any commentary. You are only interested in actors with roles - not directors, backstage crew, etc. \n\n Respond only with JSON.\n\n"
+            ]
+        }
+    ],
+    "attributes": ["actor", "role"]
+}

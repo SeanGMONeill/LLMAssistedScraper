@@ -1,0 +1,21 @@
+{
+    "schema": "schemas/cast_lists.json",
+    "id": "cast_list",
+    "sites": [
+        {
+            "name": "Stranger Things: The First Shadow",
+            "url": "http://uk.strangerthingsonstage.com/creative-team/",
+            "id": "stranger_things"
+        },
+        {
+            "name": "Wicked",
+            "url": "https://www.wickedthemusical.co.uk/cast-creative/#cast",
+            "id": "wicked"
+        },
+        {
+            "name": "Book of Mormon",
+            "url": "https://thebookofmormonmusical.com/london/show/",
+            "id": "book_of_mormon"
+        }
+    ]
+}
