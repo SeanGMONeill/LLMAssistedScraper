@@ -189,7 +189,7 @@ The scraper automatically handles websites where data fields are in separate DOM
 │                 │    │                  │    │                 │
 │ • sites/*.json  │    │ • rules/*.json   │    │ • results/*.json│
 │ • schemas/*.json│    │ • Smart Caching  │    │ • Multiple      │
-│ • openai_key.txt│   │ • Invalidation   │    │   Formats       │
+│ • openai_key.txt│    │ • Invalidation   │    │   Formats       │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
