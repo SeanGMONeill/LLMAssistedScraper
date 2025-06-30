@@ -1,3 +1,5 @@
 selenium
 html2text
 openai
+click
+rich
