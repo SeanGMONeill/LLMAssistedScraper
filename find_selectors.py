@@ -26,6 +26,43 @@ def has_all_matching_records(iterable, ground_truth):
 def minimal_rule_combo_for_total_cover(rules_with_matches, known_pairs):
     rule_sets = [(r, e) for r, e in rules_with_matches]
     print(f'Found {len(rule_sets)} rule sets')
+    
+    # Check if we have individual field rules
+    has_individual_rules = any(r.get("method") == "individual_field" for r, e in rule_sets)
+    
+    if has_individual_rules:
+        # For individual field rules, we need all fields to be covered
+        field_names = set()
+        for pair in known_pairs:
+            field_names.update(pair.keys())
+        
+        # Group rules by field
+        field_rules = {}
+        combined_rules = []
+        
+        for rule, matches in rule_sets:
+            if rule.get("method") == "individual_field":
+                field_name = rule["field"]
+                if field_name not in field_rules:
+                    field_rules[field_name] = []
+                field_rules[field_name].append((rule, matches))
+            else:
+                combined_rules.append((rule, matches))
+        
+        # If we have individual field rules for all required fields, use them
+        if set(field_rules.keys()) >= field_names:
+            selected_rules = []
+            for field_name in field_names:
+                # Just take the first rule for each field
+                if field_name in field_rules:
+                    selected_rules.append(field_rules[field_name][0][0])
+            return selected_rules
+        
+        # Otherwise fall back to combined rules if available
+        if combined_rules:
+            rule_sets = combined_rules
+    
+    # Original logic for combined rules
     for r in range(1, len(rule_sets) + 1):
         for combo in itertools.combinations(rule_sets, r):
             rule_set = [x[0] for x in combo]
@@ -58,7 +95,7 @@ if __name__ == '__main__':
     with open('openai_key.txt', 'r') as file:
         openai_key = file.read().strip()
     llm_client = LLMClient(api_key=openai_key)
-    sites = Sites.from_file('sites/cast_lists.json')
+    sites = Sites.from_file('sites/books.json')
     field_names = sites.schema.attributes
     extractor = WebdriverExtractor(field_names)
 
