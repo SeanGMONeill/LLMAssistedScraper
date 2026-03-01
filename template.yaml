@@ -1,0 +1,418 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: West End Theatre Cast Tracker - Serverless Scraping Architecture
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name (dev or prod)
+
+  AnthropicApiKeySecretName:
+    Type: String
+    Default: west-end-scraper/anthropic-api-key
+    Description: Name of the Secrets Manager secret containing Anthropic API key
+
+  AlertEmail:
+    Type: String
+    Description: Email address for scraping alerts (leave empty to skip)
+    Default: ""
+
+  ScheduleEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enable daily scraping schedule (true for prod, false for dev)
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  ScheduleIsEnabled: !Equals [!Ref ScheduleEnabled, "true"]
+
+Globals:
+  Function:
+    Timeout: 300
+    MemorySize: 512
+    Runtime: python3.12
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        SCRAPES_TABLE: !Ref ScrapesTable
+        ACTOR_INDEX_TABLE: !Ref ActorIndexTable
+        SHOW_INDEX_TABLE: !Ref ShowIndexTable
+        ALERT_TOPIC_ARN: !Ref AlertTopic
+        ANTHROPIC_API_KEY_SECRET: !Ref AnthropicApiKeySecretName
+
+Resources:
+  # ==================== DynamoDB Tables ====================
+
+  ScrapesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub WestEndScrapes-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: date_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: DateIndex
+          KeySchema:
+            - AttributeName: date_key
+              KeyType: HASH
+            - AttributeName: PK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: WestEndScraper
+
+  ActorIndexTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub WestEndActorIndex-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: is_current
+          AttributeType: N
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: CurrentShowsIndex
+          KeySchema:
+            - AttributeName: is_current
+              KeyType: HASH
+            - AttributeName: PK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ShowIndexTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub WestEndShowIndex-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ==================== SQS Queues ====================
+
+  ScrapeJobsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub west-end-scrape-jobs-${Environment}
+      VisibilityTimeout: 360  # 6 minutes (longer than Lambda timeout)
+      MessageRetentionPeriod: 86400  # 24 hours
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScrapeJobsDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ScrapeJobsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub west-end-scrape-jobs-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ==================== SNS Topic for Alerts ====================
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub west-end-scraper-alerts-${Environment}
+      DisplayName: West End Scraper Alerts
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlertTopic
+      Endpoint: !Ref AlertEmail
+
+  # ==================== Lambda Functions ====================
+
+  ScraperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub west-end-scraper-${Environment}
+      PackageType: Image
+      MemorySize: 2048
+      Timeout: 300  # 5 minutes
+      Environment:
+        Variables:
+          SITES_CONFIG_PATH: /var/task/sites/west_end.json
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScrapesTable
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ScrapeJobsQueue.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertTopic.TopicName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}*'
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ScrapeJobsQueue.Arn
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 0
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn: !Ref AlertTopic
+    Metadata:
+      Dockerfile: lambda/scraper/Dockerfile.scraper
+      DockerContext: .
+      DockerTag: latest
+
+  PostProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub west-end-post-processor-${Environment}
+      CodeUri: lambda/post_processor/
+      Handler: app.lambda_handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ActorIndexTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShowIndexTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ScrapesTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertTopic.TopicName
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ScrapesTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 5
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["INSERT"], "dynamodb": {"NewImage": {"scrape_status": {"S": ["success"]}}}}'
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn: !Ref AlertTopic
+
+  # ==================== EventBridge Schedule ====================
+
+  DailyScrapeSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: ScheduleIsEnabled
+    Properties:
+      Name: !Sub west-end-daily-scrape-${Environment}
+      Description: Trigger daily West End theatre scraping
+      ScheduleExpression: cron(0 6 * * ? *)  # 6 AM UTC daily
+      ScheduleExpressionTimezone: UTC
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: ENABLED
+      Target:
+        Arn: !GetAtt ScheduleTargetFunction.Arn
+        RoleArn: !GetAtt ScheduleExecutionRole.Arn
+
+  ScheduleTargetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub west-end-schedule-target-${Environment}
+      CodeUri: lambda/schedule_target/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref ScrapeJobsQueue
+          SITES_CONFIG_S3_BUCKET: !Ref SitesConfigBucket
+          SITES_CONFIG_S3_KEY: west_end.json
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ScrapeJobsQueue.QueueName
+        - S3ReadPolicy:
+            BucketName: !Ref SitesConfigBucket
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertTopic.TopicName
+
+  ScheduleExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: ScheduleIsEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ScheduleTargetFunction.Arn
+
+  # ==================== S3 Bucket for Sites Config ====================
+
+  SitesConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub west-end-scraper-config-${Environment}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ==================== CloudWatch Alarms ====================
+
+  ScraperErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub west-end-scraper-errors-${Environment}
+      AlarmDescription: Alert when scraper error rate exceeds 10%
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 3600  # 1 hour
+      EvaluationPeriods: 1
+      Threshold: 5  # More than 5 errors in an hour
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ScraperFunction
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  DLQDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub west-end-dlq-messages-${Environment}
+      AlarmDescription: Alert when messages appear in DLQ
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300  # 5 minutes
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ScrapeJobsDLQ.QueueName
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+Outputs:
+  ScrapesTableName:
+    Description: DynamoDB table for scrape results
+    Value: !Ref ScrapesTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ScrapesTable
+
+  ActorIndexTableName:
+    Description: DynamoDB table for actor index
+    Value: !Ref ActorIndexTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ActorIndexTable
+
+  ShowIndexTableName:
+    Description: DynamoDB table for show index
+    Value: !Ref ShowIndexTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ShowIndexTable
+
+  ScrapeJobsQueueUrl:
+    Description: SQS queue URL for scrape jobs
+    Value: !Ref ScrapeJobsQueue
+    Export:
+      Name: !Sub ${AWS::StackName}-ScrapeJobsQueueUrl
+
+  SitesConfigBucket:
+    Description: S3 bucket for sites configuration
+    Value: !Ref SitesConfigBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-SitesConfigBucket
+
+  AlertTopicArn:
+    Description: SNS topic ARN for alerts
+    Value: !Ref AlertTopic
+    Export:
+      Name: !Sub ${AWS::StackName}-AlertTopicArn
+
+  ScraperFunctionArn:
+    Description: Lambda function ARN for scraper
+    Value: !GetAtt ScraperFunction.Arn
+
+  PostProcessorFunctionArn:
+    Description: Lambda function ARN for post-processor
+    Value: !GetAtt PostProcessorFunction.Arn

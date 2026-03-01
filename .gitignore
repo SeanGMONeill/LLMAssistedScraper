@@ -33,3 +33,33 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# AWS credentials
+.aws/
+credentials
+
+# Environment variables
+.env
+.env.local
+
+# Secrets
+*.pem
+*.key
+secrets.json
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+test_output/
+screenshots/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,54 @@
+# Lambda container with Chrome and ChromeDriver for web scraping
+FROM public.ecr.aws/lambda/python:3.12
+
+# Install Chrome dependencies
+RUN dnf install -y \
+    atk \
+    cups-libs \
+    gtk3 \
+    libXcomposite \
+    alsa-lib \
+    libXcursor \
+    libXdamage \
+    libXext \
+    libXi \
+    libXrandr \
+    libXScrnSaver \
+    libXtst \
+    pango \
+    at-spi2-atk \
+    libXt \
+    xorg-x11-server-Xvfb \
+    xorg-x11-xauth \
+    dbus-glib \
+    dbus-glib-devel \
+    nss \
+    mesa-libgbm \
+    wget \
+    unzip
+
+# Install Chrome
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
+    dnf install -y google-chrome-stable_current_x86_64.rpm && \
+    rm google-chrome-stable_current_x86_64.rpm
+
+# Install ChromeDriver
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
+    wget -O /tmp/chromedriver-linux64.zip https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0.6778.204/linux64/chromedriver-linux64.zip && \
+    unzip /tmp/chromedriver-linux64.zip -d /opt/ && \
+    mv /opt/chromedriver-linux64/chromedriver /usr/local/bin/ && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm -rf /tmp/chromedriver-linux64.zip /opt/chromedriver-linux64
+
+# Copy requirements and install Python dependencies
+COPY lambda/scraper/requirements.txt ${LAMBDA_TASK_ROOT}/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY lambda/scraper/app.py ${LAMBDA_TASK_ROOT}/
+COPY direct_extractor.py ${LAMBDA_TASK_ROOT}/
+COPY anthropic_client.py ${LAMBDA_TASK_ROOT}/
+COPY sites/ ${LAMBDA_TASK_ROOT}/sites/
+
+# Set Lambda handler
+CMD ["app.lambda_handler"]

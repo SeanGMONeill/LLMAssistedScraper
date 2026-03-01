@@ -2,6 +2,29 @@
 
 An intelligent web scraper that uses AI to automatically find and extract structured data from websites. The scraper can handle complex scenarios where data fields are scattered across different DOM elements, using Large Language Models to understand page structure and create precise extraction rules.
 
+## 🚀 Now Production-Ready on AWS!
+
+**NEW:** Full serverless AWS deployment for automated scraping of 50+ West End theatre cast pages.
+
+**Quick Deploy:**
+```bash
+./deploy.sh prod --guided
+```
+
+**Features:**
+- ⏰ **Scheduled scraping** - Daily automatic updates
+- 📊 **DynamoDB storage** - Queryable cast history and actor indexes
+- 🔍 **IMDb-style queries** - "Show me all shows for this actor"
+- 🛡️ **Data validation** - Automatic quality checks and alerts
+- 💰 **Cost-effective** - ~$3-5/month for 50 sites daily
+- 🔔 **Email alerts** - Notifications for failures and cast changes
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete AWS deployment guide.
+
+See **[docs/aws-architecture.md](docs/aws-architecture.md)** for architecture details.
+
+---
+
 ## 🆕 Two Approaches Available
 
 This project now includes **two parallel implementations** for A/B testing:
@@ -264,3 +287,104 @@ python -m unittest test_webdriver_extractor.py -v
 # Traditional approach (still works)
 python find_selectors.py
 ```
+
+## ☁️ AWS Production Deployment
+
+### Architecture
+
+Production-ready serverless architecture for automated scraping:
+
+```
+EventBridge (cron) → SQS → Lambda (Scraper) → DynamoDB (Scrapes)
+                                                      ↓ (Stream)
+                                               Lambda (Post-Processor)
+                                                      ↓
+                                          DynamoDB (Actor + Show Indexes)
+```
+
+### Deployment
+
+```bash
+# Prerequisites
+# - AWS CLI configured
+# - AWS SAM CLI installed
+# - Docker running
+# - Anthropic API key
+
+# Deploy to development
+./deploy.sh dev --guided
+
+# Deploy to production (with daily scheduling)
+./deploy.sh prod
+```
+
+### Features
+
+**Data Storage:**
+- **Scrapes Table** - Immutable audit trail of all scrapes
+- **ActorIndex Table** - Query: "Which shows has this actor been in?"
+- **ShowIndex Table** - Query: "What's the current cast of Hamilton?"
+
+**Automation:**
+- Daily scraping at 6 AM UTC (production only)
+- Automatic retry with dead-letter queue
+- Email alerts for failures and data quality issues
+
+**Cost:** ~$3-5/month for 50 sites scraped daily
+
+**Monitoring:**
+- CloudWatch logs and metrics
+- Custom alarms for scraper errors
+- SNS alerts for cast changes
+
+### Quick Queries
+
+```python
+import boto3
+
+# Get current cast for a show
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('WestEndShowIndex-prod')
+
+response = table.get_item(
+    Key={'PK': 'SHOW#hamilton', 'SK': 'CURRENT'}
+)
+print(response['Item']['cast'])
+
+# Get all shows for an actor
+table = dynamodb.Table('WestEndActorIndex-prod')
+response = table.query(
+    KeyConditionExpression='PK = :pk',
+    ExpressionAttributeValues={':pk': 'ACTOR#John Doe'}
+)
+for item in response['Items']:
+    print(f"{item['show_name']}: {item['roles']}")
+```
+
+### Documentation
+
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete deployment guide
+- **[docs/aws-architecture.md](docs/aws-architecture.md)** - Architecture details
+- **[sites/README.md](sites/README.md)** - Site configuration guide
+
+### Management
+
+```bash
+# Upload sites configuration
+aws s3 cp sites/west_end.json s3://YOUR-BUCKET/west_end.json
+
+# Trigger manual scrape
+aws sqs send-message --queue-url QUEUE_URL \
+  --message-body '{"show_name":"Hamilton","url":"...","selectors":{}}'
+
+# View logs
+aws logs tail /aws/lambda/west-end-scraper-prod --follow
+
+# Query recent scrapes
+aws dynamodb query --table-name WestEndScrapes-prod \
+  --key-condition-expression 'PK = :pk' \
+  --expression-attribute-values '{":pk":{"S":"SHOW#hamilton"}}' \
+  --limit 5
+```
+
+---
