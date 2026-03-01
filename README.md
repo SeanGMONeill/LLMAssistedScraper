@@ -2,6 +2,17 @@
 
 An intelligent web scraper that uses AI to automatically find and extract structured data from websites. The scraper can handle complex scenarios where data fields are scattered across different DOM elements, using Large Language Models to understand page structure and create precise extraction rules.
 
+## 🆕 Two Approaches Available
+
+This project now includes **two parallel implementations** for A/B testing:
+
+| Approach | CLI | Cost/Year (50 sites, weekly) | Best For |
+|----------|-----|------------------------------|----------|
+| **Selector-based** | `scraper_cli.py` | ~$0.50 | Stable sites, cost-sensitive |
+| **Direct LLM** | `scraper_cli_direct.py` | ~$13 | Changing sites, simplicity |
+
+**See [COMPARISON.md](COMPARISON.md) for detailed analysis and evaluation guide.**
+
 ## ✨ Features
 
 - **🧠 AI-Powered**: Uses LLM to analyze page structure and infer extraction rules
@@ -193,6 +204,36 @@ The scraper automatically handles websites where data fields are in separate DOM
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
+## 🆕 Direct LLM Approach (Alternative)
+
+A simplified alternative implementation using Claude Haiku for direct extraction:
+
+### Quick Start
+```bash
+# Create Anthropic API key file
+echo "your-anthropic-api-key" > anthropic_key.txt
+
+# Run direct extraction (no caching)
+python scraper_cli_direct.py run sites/books.json --format table
+
+# Compare both approaches
+./compare_approaches.sh sites/books.json
+```
+
+### Key Differences
+- **No selector inference** - Claude directly extracts structured data
+- **No caching** - LLM called every run (~$0.005/page with Haiku)
+- **Simpler codebase** - 50% fewer lines than original
+- **More resilient** - Adapts to HTML changes automatically
+
+### When to Use
+- Sites that frequently change structure
+- One-off or exploratory scraping
+- Prefer simplicity over cost optimization
+- Budget allows ~$13/year for 50 sites weekly
+
+See [COMPARISON.md](COMPARISON.md) for detailed cost/performance analysis.
+
 ## 🤝 Legacy Support
 
 The new CLI maintains full backward compatibility:
@@ -205,7 +246,8 @@ The new CLI maintains full backward compatibility:
 
 Core dependencies:
 - `selenium` - Web automation
-- `openai` - LLM integration
+- `openai` - LLM integration (original approach)
+- `anthropic` - Claude API (direct approach)
 - `click` - CLI framework
 - `rich` - Beautiful terminal output
 - `html2text` - HTML to markdown conversion

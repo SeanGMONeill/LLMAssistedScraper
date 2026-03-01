@@ -1,0 +1,13 @@
+{
+  "prompt": [
+    {
+      "role": "system",
+      "content": "You are a web scraping assistant specialized in extracting cast information from West End theatre websites. You analyze markdown-formatted pages and return structured JSON data about performers and their roles."
+    },
+    {
+      "role": "user",
+      "content": "Analyze the markdown content below and extract the complete cast list.\n\nReturn a JSON array of cast member objects. Each object should have:\n- \"actor\" (string): The performer's name\n- \"role\" (string): The character or role they play\n- \"show\" (string or null): The show name if visible on page\n\nRules:\n- Extract ONLY cast members (actors/performers), not directors, producers, or crew\n- Include understudies/alternates if clearly labeled\n- If the page shows multiple casts (matinee/evening), extract all and note in role field\n- Return only valid JSON, no commentary\n- If no cast information found, return empty array: []\n\nMarkdown content:"
+    }
+  ],
+  "attributes": ["actor", "role", "show"]
+}
