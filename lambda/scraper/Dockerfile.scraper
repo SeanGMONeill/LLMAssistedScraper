@@ -27,10 +27,11 @@ RUN dnf install -y \
     wget \
     unzip
 
-# Install Chrome
-# Lambda base image uses microdnf (minimal dnf) which supports 'install' for local RPMs
+# Install Chrome using rpm directly
+# microdnf doesn't support local RPM files, but we already installed all
+# Chrome dependencies above, so rpm can install it directly
 RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
-    microdnf install -y google-chrome-stable_current_x86_64.rpm && \
+    rpm -i google-chrome-stable_current_x86_64.rpm && \
     rm -f google-chrome-stable_current_x86_64.rpm
 
 # Install ChromeDriver matching the exact installed Chrome version
