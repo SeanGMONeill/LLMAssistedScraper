@@ -38,7 +38,6 @@ Globals:
   Function:
     Timeout: 300
     MemorySize: 512
-    Runtime: python3.12
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
@@ -228,6 +227,7 @@ Resources:
       FunctionName: !Sub west-end-post-processor-${Environment}
       CodeUri: lambda/post_processor/
       Handler: app.lambda_handler
+      Runtime: python3.12
       MemorySize: 512
       Timeout: 60
       Policies:
@@ -277,6 +277,7 @@ Resources:
       FunctionName: !Sub west-end-schedule-target-${Environment}
       CodeUri: lambda/schedule_target/
       Handler: app.lambda_handler
+      Runtime: python3.12
       MemorySize: 256
       Timeout: 30
       Environment:
