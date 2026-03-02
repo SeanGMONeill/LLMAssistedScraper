@@ -28,9 +28,9 @@ RUN dnf install -y \
     unzip
 
 # Install Chrome
-# Use 'dnf localinstall' for local RPM files with automatic dependency resolution
+# Lambda base image uses microdnf (minimal dnf) which supports 'install' for local RPMs
 RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
-    dnf localinstall -y google-chrome-stable_current_x86_64.rpm && \
+    microdnf install -y google-chrome-stable_current_x86_64.rpm && \
     rm -f google-chrome-stable_current_x86_64.rpm
 
 # Install ChromeDriver matching the exact installed Chrome version
