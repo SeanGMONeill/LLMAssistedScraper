@@ -25,7 +25,10 @@ RUN dnf install -y \
     nss \
     mesa-libgbm \
     wget \
-    unzip
+    unzip \
+    liberation-fonts \
+    vulkan-loader \
+    xdg-utils
 
 # Install Chrome using rpm directly
 # microdnf doesn't support local RPM files, but we already installed all
