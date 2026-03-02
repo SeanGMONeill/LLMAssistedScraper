@@ -17,8 +17,14 @@ import html2text
 class DirectExtractor:
     """Simplified extractor using direct LLM extraction."""
 
-    def __init__(self):
-        """Initialize the extractor with a headless Chrome browser."""
+    def __init__(self, url=None, selectors=None):
+        """
+        Initialize the extractor with a headless Chrome browser.
+
+        Args:
+            url: URL to scrape (optional, can be set later via navigate())
+            selectors: CSS selectors (unused in direct extraction, kept for compatibility)
+        """
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
@@ -29,6 +35,8 @@ class DirectExtractor:
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
         self.html_converter.ignore_images = True
+        self.url = url
+        self.selectors = selectors
 
     def navigate(self, url):
         """
@@ -53,6 +61,24 @@ class DirectExtractor:
         markdown = self.html_converter.handle(body_html)
 
         return markdown
+
+    def extract(self):
+        """
+        Extract page content as markdown (Lambda-compatible method).
+
+        Navigates to self.url if set, then returns page markdown.
+
+        Returns:
+            str: Page HTML converted to markdown
+
+        Raises:
+            ValueError: If no URL was provided
+        """
+        if not self.url:
+            raise ValueError("No URL provided to extract(). Set url in constructor or call navigate() first.")
+
+        self.navigate(self.url)
+        return self.get_page_markdown()
 
     def close(self):
         """Close the browser."""
