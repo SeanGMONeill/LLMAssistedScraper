@@ -122,6 +122,7 @@ DEPLOY_PARAMS=(
     --stack-name "$STACK_NAME"
     --region "$AWS_REGION"
     --capabilities CAPABILITY_IAM
+    --resolve-image-repos
     --parameter-overrides
         "Environment=${ENVIRONMENT}"
         "AnthropicApiKeySecretName=${SECRET_NAME}"
