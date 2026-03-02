@@ -28,13 +28,16 @@ RUN dnf install -y \
     unzip
 
 # Install Chrome
-RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
-    dnf install -y google-chrome-stable_current_x86_64.rpm && \
-    rm google-chrome-stable_current_x86_64.rpm
+# Note: dnf requires ./ prefix to treat the argument as a local file path,
+# otherwise it searches package repositories and finds nothing.
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
+    dnf install -y ./google-chrome-stable_current_x86_64.rpm && \
+    rm -f google-chrome-stable_current_x86_64.rpm
 
-# Install ChromeDriver
-RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
-    wget -O /tmp/chromedriver-linux64.zip https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0.6778.204/linux64/chromedriver-linux64.zip && \
+# Install ChromeDriver matching the exact installed Chrome version
+RUN CHROME_FULL_VERSION=$(google-chrome --version | awk '{print $3}') && \
+    wget -O /tmp/chromedriver-linux64.zip \
+      "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FULL_VERSION}/linux64/chromedriver-linux64.zip" && \
     unzip /tmp/chromedriver-linux64.zip -d /opt/ && \
     mv /opt/chromedriver-linux64/chromedriver /usr/local/bin/ && \
     chmod +x /usr/local/bin/chromedriver && \
