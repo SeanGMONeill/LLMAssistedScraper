@@ -26,10 +26,23 @@ class DirectExtractor:
             selectors: CSS selectors (unused in direct extraction, kept for compatibility)
         """
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--single-process')
+        chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-dev-tools')
+        chrome_options.add_argument('--no-zygote')
+
+        # Use /tmp for all Chrome data (only writable directory in Lambda)
+        chrome_options.add_argument('--user-data-dir=/tmp/chrome-user-data')
+        chrome_options.add_argument('--data-path=/tmp/chrome-data')
+        chrome_options.add_argument('--disk-cache-dir=/tmp/chrome-cache')
+
+        # Set binary location explicitly (Chrome installed via RPM in Dockerfile)
+        chrome_options.binary_location = '/usr/bin/google-chrome'
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.html_converter = html2text.HTML2Text()
