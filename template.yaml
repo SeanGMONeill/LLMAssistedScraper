@@ -194,6 +194,10 @@ Resources:
       Environment:
         Variables:
           SITES_CONFIG_PATH: /var/task/sites/west_end.json
+          HOME: /tmp
+          TMPDIR: /tmp
+          TEMP: /tmp
+          TMP: /tmp
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ScrapesTable

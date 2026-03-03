@@ -11,9 +11,12 @@ No selector inference, no caching, just pure LLM extraction.
 """
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, WebDriverException
 import html2text
 import time
+import os
+import shutil
 
 
 class DirectExtractor:
@@ -27,6 +30,17 @@ class DirectExtractor:
             url: URL to scrape (optional, can be set later via navigate())
             selectors: CSS selectors (unused in direct extraction, kept for compatibility)
         """
+        # Clean up old Chrome data from previous Lambda invocations
+        for dir_path in ['/tmp/chrome-user-data', '/tmp/chrome-data', '/tmp/chrome-cache', '/tmp/cache']:
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path, ignore_errors=True)
+
+        # Force all cache/temp operations to use /tmp (only writable dir in Lambda)
+        os.environ['HOME'] = '/tmp'
+        os.environ['TMPDIR'] = '/tmp'
+        os.environ['TEMP'] = '/tmp'
+        os.environ['TMP'] = '/tmp'
+
         chrome_options = Options()
         chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
@@ -51,6 +65,13 @@ class DirectExtractor:
         chrome_options.add_argument('--safebrowsing-disable-auto-update')
         chrome_options.add_argument('--disable-features=VizDisplayCompositor')
 
+        # Prevent automation detection (can cause crashes on some sites)
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+
+        # Additional Lambda stability
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--window-size=1920,1080')
+
         # Use /tmp for all Chrome data (only writable directory in Lambda)
         chrome_options.add_argument('--user-data-dir=/tmp/chrome-user-data')
         chrome_options.add_argument('--data-path=/tmp/chrome-data')
@@ -63,7 +84,13 @@ class DirectExtractor:
         # Set binary location explicitly (Chrome installed via RPM in Dockerfile)
         chrome_options.binary_location = '/usr/bin/google-chrome'
 
-        self.driver = webdriver.Chrome(options=chrome_options)
+        # Configure WebDriver Service with explicit paths
+        service = Service(
+            executable_path='/usr/local/bin/chromedriver',
+            log_path='/tmp/chromedriver.log'
+        )
+
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # Set page load timeout (30 seconds)
         self.driver.set_page_load_timeout(30)
