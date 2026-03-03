@@ -11,7 +11,9 @@ No selector inference, no caching, just pure LLM extraction.
 """
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, WebDriverException
 import html2text
+import time
 
 
 class DirectExtractor:
@@ -36,29 +38,69 @@ class DirectExtractor:
         chrome_options.add_argument('--disable-dev-tools')
         chrome_options.add_argument('--no-zygote')
 
+        # Additional stability options for Lambda
+        chrome_options.add_argument('--disable-setuid-sandbox')
+        chrome_options.add_argument('--disable-logging')
+        chrome_options.add_argument('--log-level=3')
+        chrome_options.add_argument('--disable-background-networking')
+        chrome_options.add_argument('--disable-default-apps')
+        chrome_options.add_argument('--disable-sync')
+        chrome_options.add_argument('--metrics-recording-only')
+        chrome_options.add_argument('--mute-audio')
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--safebrowsing-disable-auto-update')
+        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+
         # Use /tmp for all Chrome data (only writable directory in Lambda)
         chrome_options.add_argument('--user-data-dir=/tmp/chrome-user-data')
         chrome_options.add_argument('--data-path=/tmp/chrome-data')
         chrome_options.add_argument('--disk-cache-dir=/tmp/chrome-cache')
+        chrome_options.add_argument('--homedir=/tmp')
+
+        # Set cache path for Selenium
+        chrome_options.add_argument('--cache-dir=/tmp/cache')
 
         # Set binary location explicitly (Chrome installed via RPM in Dockerfile)
         chrome_options.binary_location = '/usr/bin/google-chrome'
 
         self.driver = webdriver.Chrome(options=chrome_options)
+
+        # Set page load timeout (30 seconds)
+        self.driver.set_page_load_timeout(30)
+
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
         self.html_converter.ignore_images = True
         self.url = url
         self.selectors = selectors
 
-    def navigate(self, url):
+    def navigate(self, url, max_retries=2):
         """
-        Navigate to a URL.
+        Navigate to a URL with retry logic.
 
         Args:
             url: The URL to navigate to
+            max_retries: Number of times to retry on failure (default: 2)
+
+        Raises:
+            WebDriverException: If all retries fail
         """
-        self.driver.get(url)
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                self.driver.get(url)
+                # Wait a moment for page to stabilize
+                time.sleep(2)
+                return
+            except (TimeoutException, WebDriverException) as e:
+                last_error = e
+                if attempt < max_retries:
+                    print(f"Navigation attempt {attempt + 1} failed, retrying...")
+                    time.sleep(1)
+                else:
+                    print(f"All {max_retries + 1} navigation attempts failed")
+
+        raise last_error
 
     def get_page_markdown(self):
         """
