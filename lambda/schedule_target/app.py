@@ -49,6 +49,9 @@ def send_scrape_jobs(sites: List[Dict[str, Any]]) -> Dict[str, int]:
     failed = 0
 
     for site in sites:
+        if not site.get('enabled', True):
+            print(f"Skipping disabled site: {site['name']}")
+            continue
         try:
             message = {
                 "show_name": site['name'],

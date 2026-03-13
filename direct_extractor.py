@@ -13,10 +13,12 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium_stealth import stealth
 import html2text
 import time
 import os
 import shutil
+import urllib.request
 
 
 class DirectExtractor:
@@ -46,7 +48,6 @@ class DirectExtractor:
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--single-process')
         chrome_options.add_argument('--disable-software-rasterizer')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-dev-tools')
@@ -92,6 +93,15 @@ class DirectExtractor:
 
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
+        stealth(self.driver,
+            languages=["en-GB", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
+
         # Set page load timeout (30 seconds)
         self.driver.set_page_load_timeout(30)
 
@@ -116,8 +126,13 @@ class DirectExtractor:
         for attempt in range(max_retries + 1):
             try:
                 self.driver.get(url)
-                # Wait a moment for page to stabilize
+                # Wait for JS-heavy pages to render
+                time.sleep(3)
+                # Scroll to bottom to trigger lazy loading, then back to top
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(2)
+                self.driver.execute_script("window.scrollTo(0, 0);")
+                time.sleep(1)
                 return
             except (TimeoutException, WebDriverException) as e:
                 last_error = e
@@ -136,13 +151,22 @@ class DirectExtractor:
         Returns:
             str: Page HTML converted to markdown
         """
-        # Get the body HTML
         body_html = self.driver.execute_script("return document.body.innerHTML")
+        return self.html_converter.handle(body_html)
 
-        # Convert to markdown
-        markdown = self.html_converter.handle(body_html)
-
-        return markdown
+    def _fetch_with_requests(self, url):
+        """
+        Fallback: fetch page HTML via urllib with a browser-like UA.
+        Used when Chrome returns suspiciously little content (e.g. Cloudflare challenge).
+        """
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-GB,en;q=0.9',
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            html = resp.read().decode('utf-8', errors='replace')
+        return self.html_converter.handle(html)
 
     def extract(self):
         """
@@ -160,7 +184,18 @@ class DirectExtractor:
             raise ValueError("No URL provided to extract(). Set url in constructor or call navigate() first.")
 
         self.navigate(self.url)
-        return self.get_page_markdown()
+        markdown = self.get_page_markdown()
+
+        # If Chrome got very little content it likely hit a bot challenge — try plain HTTP
+        if len(markdown) < 1000:
+            print(f"Chrome returned only {len(markdown)} chars, trying requests fallback")
+            try:
+                markdown = self._fetch_with_requests(self.url)
+                print(f"Requests fallback returned {len(markdown)} chars")
+            except Exception as e:
+                print(f"Requests fallback failed: {e}")
+
+        return markdown
 
     def close(self):
         """Close the browser."""

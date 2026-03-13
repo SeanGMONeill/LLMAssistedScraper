@@ -2,105 +2,132 @@
   "schema": "schemas/cast_lists.json",
   "id": "west_end_theatres",
   "description": "West End theatre cast pages for AWS scraping infrastructure",
-  "version": "1.0.0",
-  "last_updated": "2026-03-01",
+  "version": "1.1.0",
+  "last_updated": "2026-03-12",
   "sites": [
     {
       "name": "Wicked",
       "url": "https://www.wickedthemusical.co.uk/cast-creative/#cast",
       "id": "wicked",
-      "selectors": {}
-    },
-    {
-      "name": "Book of Mormon",
-      "url": "https://thebookofmormonmusical.com/london/show/",
-      "id": "book_of_mormon",
-      "selectors": {}
-    },
-    {
-      "name": "Stranger Things: The First Shadow",
-      "url": "http://uk.strangerthingsonstage.com/creative-team/",
-      "id": "stranger_things",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Hamilton",
-      "url": "https://hamiltonmusical.com/london/",
+      "url": "https://hamiltonmusical.com/london/cast-creative/",
       "id": "hamilton",
-      "selectors": {}
-    },
-    {
-      "name": "The Lion King",
-      "url": "https://www.thelionking.co.uk/cast-and-creatives",
-      "id": "lion_king",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Les Miserables",
-      "url": "https://www.lesmis.com/uk/cast-creatives/",
+      "url": "https://london.lesmis.com/cast-creative/",
       "id": "les_miserables",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "The Phantom of the Opera",
-      "url": "https://thephantomoftheopera.com/london/cast/",
+      "url": "http://uk.thephantomoftheopera.com/cast-creative",
       "id": "phantom",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Mamma Mia",
-      "url": "https://www.mamma-mia.com/london/cast-creative",
+      "url": "https://mamma-mia.com/london/cast",
       "id": "mamma_mia",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Matilda The Musical",
-      "url": "https://uk.matildathemusical.com/cast-and-creatives/",
+      "url": "https://uk.matildathemusical.com/cast-creative/",
       "id": "matilda",
-      "selectors": {}
-    },
-    {
-      "name": "SIX",
-      "url": "https://www.sixthemusical.com/london/",
-      "id": "six",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Moulin Rouge",
-      "url": "https://moulinrougemusical.co.uk/cast-and-creative/",
+      "url": "https://moulinrougemusical.co.uk/cast/",
       "id": "moulin_rouge",
-      "selectors": {}
-    },
-    {
-      "name": "Back to the Future",
-      "url": "https://www.bttfmusical.co.uk/cast-creatives",
-      "id": "back_to_the_future",
+      "enabled": true,
       "selectors": {}
     },
     {
       "name": "Chicago",
       "url": "https://www.chicagothemusical.com/london/cast",
       "id": "chicago",
+      "enabled": true,
+      "selectors": {}
+    },
+    {
+      "name": "The Lion King",
+      "url": "https://www.thelionking.co.uk/cast-and-creatives",
+      "id": "lion_king",
+      "enabled": false,
+      "disabled_reason": "Akamai hard block on AWS IPs",
+      "selectors": {}
+    },
+    {
+      "name": "SIX",
+      "url": "https://www.sixthemusical.com/london/",
+      "id": "six",
+      "enabled": false,
+      "disabled_reason": "CDN block on AWS IPs; show also moved to UK tour",
+      "selectors": {}
+    },
+    {
+      "name": "The Play That Goes Wrong",
+      "url": "https://www.mischiefcomedy.com/whats-on/the-play-that-goes-wrong/london/",
+      "id": "play_goes_wrong",
+      "enabled": false,
+      "disabled_reason": "CDN block on AWS IPs",
+      "selectors": {}
+    },
+    {
+      "name": "Book of Mormon",
+      "url": "https://thebookofmormonmusical.com/london/show/",
+      "id": "book_of_mormon",
+      "enabled": false,
+      "disabled_reason": "West End run closed",
+      "selectors": {}
+    },
+    {
+      "name": "Stranger Things: The First Shadow",
+      "url": "https://uk.strangerthingsonstage.com/creative-team/",
+      "id": "stranger_things",
+      "enabled": true,
+      "selectors": {}
+    },
+    {
+      "name": "Harry Potter and the Cursed Child",
+      "url": "https://uk.harrypottertheplay.com/cast-creative/",
+      "id": "harry_potter",
+      "enabled": true,
+      "selectors": {}
+    },
+    {
+      "name": "Back to the Future",
+      "url": "https://www.bttfmusical.co.uk/cast-creatives",
+      "id": "back_to_the_future",
+      "enabled": false,
+      "disabled_reason": "Website down",
       "selectors": {}
     },
     {
       "name": "Frozen",
       "url": "https://frozenthemusical.co.uk/cast-and-creatives/",
       "id": "frozen",
-      "selectors": {}
-    },
-    {
-      "name": "The Play That Goes Wrong",
-      "url": "https://www.theplaythatgoeswrong.com/london/cast-creative",
-      "id": "play_goes_wrong",
+      "enabled": false,
+      "disabled_reason": "Domain redirected to Disney tickets; show status unclear",
       "selectors": {}
     }
   ],
   "notes": [
-    "This is a starter configuration with 15 West End shows",
-    "Expand to 50+ shows through manual curation",
+    "Set enabled=false to skip a show without removing it from the config",
+    "disabled_reason documents why a show is disabled",
     "selectors are optional - the LLM can extract without them",
-    "URLs should point to official cast pages",
-    "Update this file and upload to S3 to add/remove shows"
+    "URLs should point to official cast pages"
   ]
 }
