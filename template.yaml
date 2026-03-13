@@ -11,6 +11,11 @@ Parameters:
       - prod
     Description: Environment name (dev or prod)
 
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:749282812504:certificate/7a3551d0-5a27-496f-8ac9-5c1d118df3e9
+    Description: ACM certificate ARN (us-east-1) for theatre.muddl.io
+
   AnthropicApiKeySecretName:
     Type: String
     Default: west-end-scraper/anthropic-api-key
@@ -191,6 +196,7 @@ Resources:
       PackageType: Image
       MemorySize: 2048
       Timeout: 300  # 5 minutes
+      ReservedConcurrentExecutions: 3
       Environment:
         Variables:
           SITES_CONFIG_PATH: /var/task/sites/west_end.json
@@ -377,6 +383,140 @@ Resources:
         - !Ref AlertTopic
       TreatMissingData: notBreaching
 
+  # ==================== API Lambda ====================
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub west-end-api-${Environment}
+      CodeUri: lambda/api/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ActorIndexTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ShowIndexTable
+      Events:
+        HttpApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: GET
+
+  # ==================== HTTP API Gateway ====================
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # ==================== Static Website (S3 + CloudFront) ====================
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub west-end-website-${Environment}-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WebsiteOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub west-end-website-oac-${Environment}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100  # US, Canada, Europe
+        Aliases:
+          - theatre.muddl.io
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""  # Required placeholder when using OAC
+            OriginAccessControlId: !GetAtt WebsiteOAC.Id
+          - Id: ApiOrigin
+            DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebsiteDistribution}"
+
+  TheatreDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: Z09670653L26HQLRCE66N
+      Name: theatre.muddl.io.
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt WebsiteDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (constant)
+        EvaluateTargetHealth: false
+
 Outputs:
   ScrapesTableName:
     Description: DynamoDB table for scrape results
@@ -421,3 +561,19 @@ Outputs:
   PostProcessorFunctionArn:
     Description: Lambda function ARN for post-processor
     Value: !GetAtt PostProcessorFunction.Arn
+
+  CloudFrontUrl:
+    Description: CloudFront distribution URL for the web app
+    Value: !Sub "https://${WebsiteDistribution.DomainName}"
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID (used by deploy-frontend.sh)
+    Value: !Ref WebsiteDistribution
+
+  WebsiteBucketName:
+    Description: S3 bucket for React build artifacts
+    Value: !Ref WebsiteBucket
+
+  ApiUrl:
+    Description: HTTP API Gateway URL (use as VITE_API_URL for local dev)
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"

@@ -1,0 +1,234 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0e0e0e;
+  --surface: #1a1a1a;
+  --surface-hover: #232323;
+  --border: #2e2e2e;
+  --gold: #c9a84c;
+  --gold-light: #e4c96e;
+  --text: #f0ece4;
+  --text-muted: #888;
+  --text-dim: #555;
+  --green: #4caf82;
+  --red: #c0392b;
+  --radius: 8px;
+  --max-width: 1100px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 400;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main {
+  flex: 1;
+  padding: 2.5rem 1.5rem 5rem;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── NavBar ── */
+.navbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  height: 60px;
+}
+
+.navbar-brand {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.2rem;
+  color: var(--gold);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.navbar-brand:hover { color: var(--gold-light); text-decoration: none; }
+
+/* ── Typography ── */
+h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.4rem;
+}
+h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 1rem;
+}
+
+a { color: var(--gold); text-decoration: none; }
+a:hover { color: var(--gold-light); text-decoration: underline; }
+
+/* ── Page header ── */
+.page-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.page-header .subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
+}
+.back-link {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+.back-link:hover { color: var(--gold); text-decoration: none; }
+
+/* ── Show cards ── */
+.shows-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.show-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.show-card:hover {
+  border-color: var(--gold);
+  background: var(--surface-hover);
+  text-decoration: none;
+  color: inherit;
+}
+.show-card-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.9rem;
+  line-height: 1.3;
+}
+.show-card-count {
+  font-size: 1.6rem;
+  font-weight: 300;
+  color: var(--gold);
+  display: block;
+  line-height: 1;
+}
+.show-card-count-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  display: block;
+  margin-top: 0.15rem;
+  margin-bottom: 0.75rem;
+}
+.show-card-updated {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* ── Tables ── */
+.table-container {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+thead { background: #111; }
+th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface-hover); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block;
+  padding: 0.18em 0.55em;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.badge-current { background: rgba(76, 175, 130, 0.15); color: var(--green); }
+.badge-past    { background: rgba(136, 136, 136, 0.1); color: var(--text-dim); }
+
+/* ── Timeline ── */
+.section { margin-top: 2.5rem; }
+
+.timeline { display: flex; flex-direction: column; }
+.timeline-item {
+  display: flex;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+.timeline-item:last-child { border-bottom: none; }
+.timeline-actor { flex: 1; min-width: 0; }
+.timeline-actor-name { font-weight: 500; font-size: 0.95rem; }
+.timeline-actor-role { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.1rem; }
+.timeline-dates {
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Status messages ── */
+.status-message {
+  text-align: center;
+  padding: 5rem 2rem;
+  color: var(--text-muted);
+}
+.status-message.error { color: var(--red); }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  h1 { font-size: 1.5rem; }
+  .shows-grid { grid-template-columns: 1fr; }
+  .main { padding: 1.5rem 1rem 4rem; }
+}
