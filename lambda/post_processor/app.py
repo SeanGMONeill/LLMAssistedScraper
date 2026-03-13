@@ -1,13 +1,21 @@
 """
 Lambda function for post-processing scrape results.
 Triggered by DynamoDB Streams, updates ActorIndex and ShowIndex tables.
+
+DynamoDB key structure (production model):
+  ShowIndex:
+    SHOW#{show_slug}       / PRODUCTION#{production_id}  — production summary
+    PRODUCTION#{prod_id}   / CURRENT                     — full current cast
+    PRODUCTION#{prod_id}   / ACTOR#{actor}#{ts}          — actor history
+  ActorIndex:
+    ACTOR#{actor}          / PRODUCTION#{prod_id}#JOINED#{ts}
 """
 
 import json
 import os
 import boto3
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Set, Tuple
+from typing import Dict, Any, List, Optional
 from decimal import Decimal
 
 # AWS clients
@@ -22,26 +30,44 @@ ALERT_TOPIC_ARN = os.environ['ALERT_TOPIC_ARN']
 ENVIRONMENT = os.environ['ENVIRONMENT']
 
 
-def get_previous_scrape(show_name: str) -> Dict[str, Any] | None:
-    """Get the most recent previous scrape for a show."""
-    table = dynamodb.Table(SCRAPES_TABLE)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    response = table.query(
-        KeyConditionExpression='PK = :pk',
-        ExpressionAttributeValues={
-            ':pk': f"SHOW#{show_name}"
-        },
-        ScanIndexForward=False,  # Descending order (newest first)
-        Limit=2  # Get 2 most recent (current + previous)
+def _show_index():
+    return dynamodb.Table(SHOW_INDEX_TABLE)
+
+def _actor_index():
+    return dynamodb.Table(ACTOR_INDEX_TABLE)
+
+def _scrapes():
+    return dynamodb.Table(SCRAPES_TABLE)
+
+
+# ---------------------------------------------------------------------------
+# Previous scrape lookup
+# ---------------------------------------------------------------------------
+
+def get_previous_scrape(production_id: str) -> Optional[Dict[str, Any]]:
+    """Get the most recent previous scrape for a production."""
+    from boto3.dynamodb.conditions import Key
+    response = _scrapes().query(
+        KeyConditionExpression=(
+            Key('PK').eq(f"PRODUCTION#{production_id}") &
+            Key('SK').begins_with('SCRAPE#')
+        ),
+        ScanIndexForward=False,  # newest first
+        Limit=2
     )
-
     items = response.get('Items', [])
-
-    # Return the second item (previous scrape), if it exists
     return items[1] if len(items) > 1 else None
 
 
-def validate_data_quality(new_scrape: Dict[str, Any], previous_scrape: Dict[str, Any] | None) -> Dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Data quality validation (cast_list_page path only)
+# ---------------------------------------------------------------------------
+
+def validate_data_quality(new_scrape: Dict[str, Any], previous_scrape: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Validate data quality by comparing new scrape to previous.
 
@@ -56,32 +82,31 @@ def validate_data_quality(new_scrape: Dict[str, Any], previous_scrape: Dict[str,
     new_cast = new_scrape.get('cast', [])
     new_count = len(new_cast)
 
-    # If no previous scrape, always update
     if previous_scrape is None:
         return {
             "should_update_indexes": True,
-            "warnings": ["First scrape for this show"],
+            "warnings": ["First scrape for this production"],
             "changes": {"type": "initial", "new_count": new_count}
         }
 
     prev_cast = previous_scrape.get('cast', [])
     prev_count = len(prev_cast)
 
-    # Check for suspicious drops
+    # Suspicious drop
     if new_count < prev_count * 0.5:
         warnings.append(
             f"Cast count dropped significantly: {prev_count} → {new_count} "
             f"({(new_count / prev_count * 100):.0f}% of previous)"
         )
         return {
-            "should_update_indexes": False,  # Don't update - likely scraper error
+            "should_update_indexes": False,
             "warnings": warnings,
             "changes": {"type": "suspicious_drop", "prev_count": prev_count, "new_count": new_count}
         }
 
-    # Check for complete cast replacement (0% overlap)
-    prev_actors = {member['actor'] for member in prev_cast if 'actor' in member}
-    new_actors = {member['actor'] for member in new_cast if 'actor' in member}
+    # Complete replacement
+    prev_actors = {m['actor'] for m in prev_cast if 'actor' in m}
+    new_actors = {m['actor'] for m in new_cast if 'actor' in m}
 
     overlap = prev_actors & new_actors
     overlap_pct = len(overlap) / len(prev_actors) * 100 if prev_actors else 0
@@ -92,12 +117,11 @@ def validate_data_quality(new_scrape: Dict[str, Any], previous_scrape: Dict[str,
             f"Previous: {prev_count} actors, New: {new_count} actors"
         )
         return {
-            "should_update_indexes": False,  # Needs manual review
+            "should_update_indexes": False,
             "warnings": warnings,
             "changes": {"type": "complete_replacement", "prev_count": prev_count, "new_count": new_count}
         }
 
-    # Calculate changes
     actors_joined = new_actors - prev_actors
     actors_left = prev_actors - new_actors
 
@@ -115,183 +139,393 @@ def validate_data_quality(new_scrape: Dict[str, Any], previous_scrape: Dict[str,
     }
 
 
+# ---------------------------------------------------------------------------
+# ShowIndex writes — cast_list_page path
+# ---------------------------------------------------------------------------
+
 def update_show_index(scrape: Dict[str, Any]) -> None:
-    """Update ShowIndex table with current cast and history."""
-    table = dynamodb.Table(SHOW_INDEX_TABLE)
+    """
+    Update ShowIndex with:
+      1. PRODUCTION#{prod_id}/CURRENT — full current cast (scrape is authoritative)
+      2. SHOW#{show_slug}/PRODUCTION#{prod_id} — production summary
+      3. PRODUCTION#{prod_id}/ACTOR#{actor}#{ts} — per-actor history
+    """
+    from boto3.dynamodb.conditions import Key
+    table = _show_index()
+    production_id = scrape['production_id']
     show_name = scrape['show_name']
+    show_slug = scrape['show_slug']
     cast = scrape['cast']
     scraped_at = scrape['scraped_at']
 
-    # Update CURRENT cast
-    table.put_item(
-        Item={
-            'PK': f"SHOW#{show_name}",
-            'SK': 'CURRENT',
-            'cast': cast,
-            'last_updated': scraped_at,
-            'cast_count': len(cast)
-        }
-    )
+    # 1. PRODUCTION# / CURRENT (includes show metadata for API convenience)
+    current_item = {
+        'PK': f"PRODUCTION#{production_id}",
+        'SK': 'CURRENT',
+        'cast': cast,
+        'last_updated': scraped_at,
+        'cast_count': len(cast),
+        'data_source': 'scrape',
+        'show_name': show_name,
+        'show_slug': show_slug,
+    }
+    for field in ('production_label', 'show_type', 'theatre', 'city', 'production_company'):
+        if scrape.get(field):
+            current_item[field] = scrape[field]
+    table.put_item(Item={k: v for k, v in current_item.items() if v is not None})
 
-    # Add history entries for each actor
+    # 2. SHOW# / PRODUCTION# summary
+    summary = {
+        'PK': f"SHOW#{show_slug}",
+        'SK': f"PRODUCTION#{production_id}",
+        'production_id': production_id,
+        'show_name': show_name,
+        'show_slug': show_slug,
+        'cast_count': len(cast),
+        'last_updated': scraped_at,
+        'data_source': 'scrape',
+    }
+    for field in ('production_label', 'show_type', 'theatre', 'city', 'production_company'):
+        if scrape.get(field):
+            summary[field] = scrape[field]
+    table.put_item(Item=summary)
+
+    # 3. Per-actor history
     for member in cast:
         actor = member.get('actor')
         role = member.get('role')
-
         if not actor or not role:
             continue
 
-        # Check if this actor already exists in the show's history
         try:
             response = table.query(
-                KeyConditionExpression='PK = :pk AND begins_with(SK, :sk)',
-                ExpressionAttributeValues={
-                    ':pk': f"SHOW#{show_name}",
-                    ':sk': f"ACTOR#{actor}#"
-                },
+                KeyConditionExpression=(
+                    Key('PK').eq(f"PRODUCTION#{production_id}") &
+                    Key('SK').begins_with(f"ACTOR#{actor}#")
+                ),
                 Limit=1
             )
 
             if response.get('Items'):
-                # Actor exists - update last_seen
                 existing = response['Items'][0]
                 roles = existing.get('roles', [])
-
-                # Add new role if not already tracked
                 if role not in roles:
                     roles.append(role)
-
                 table.update_item(
-                    Key={
-                        'PK': existing['PK'],
-                        'SK': existing['SK']
-                    },
-                    UpdateExpression='SET last_seen = :last_seen, roles = :roles, is_current = :current',
+                    Key={'PK': existing['PK'], 'SK': existing['SK']},
+                    UpdateExpression='SET last_seen = :ls, roles = :roles, is_current = :cur',
                     ExpressionAttributeValues={
-                        ':last_seen': scraped_at,
+                        ':ls': scraped_at,
                         ':roles': roles,
-                        ':current': True
+                        ':cur': True
                     }
                 )
             else:
-                # New actor - create entry
-                table.put_item(
-                    Item={
-                        'PK': f"SHOW#{show_name}",
-                        'SK': f"ACTOR#{actor}#{scraped_at}",
-                        'actor_name': actor,
-                        'roles': [role],
-                        'first_seen': scraped_at,
-                        'last_seen': scraped_at,
-                        'is_current': True
-                    }
-                )
+                table.put_item(Item={
+                    'PK': f"PRODUCTION#{production_id}",
+                    'SK': f"ACTOR#{actor}#{scraped_at}",
+                    'actor_name': actor,
+                    'roles': [role],
+                    'first_seen': scraped_at,
+                    'last_seen': scraped_at,
+                    'is_current': True,
+                    'data_source': 'scrape'
+                })
 
         except Exception as e:
-            print(f"Error updating ShowIndex for {actor}: {e}")
+            print(f"Error updating ShowIndex history for {actor}: {e}")
 
 
-def update_actor_index(scrape: Dict[str, Any], previous_scrape: Dict[str, Any] | None) -> None:
-    """Update ActorIndex table with actor-show relationships."""
-    table = dynamodb.Table(ACTOR_INDEX_TABLE)
+# ---------------------------------------------------------------------------
+# ActorIndex writes — cast_list_page path
+# ---------------------------------------------------------------------------
+
+def update_actor_index(scrape: Dict[str, Any], previous_scrape: Optional[Dict[str, Any]]) -> None:
+    """Update ActorIndex with actor-production relationships."""
+    from boto3.dynamodb.conditions import Key
+    table = _actor_index()
+    production_id = scrape['production_id']
     show_name = scrape['show_name']
+    show_slug = scrape['show_slug']
     cast = scrape['cast']
     scraped_at = scrape['scraped_at']
 
-    current_actors = {member['actor']: member['role'] for member in cast if 'actor' in member and 'role' in member}
+    current_actors = {m['actor']: m['role'] for m in cast if 'actor' in m and 'role' in m}
 
-    # Get previous actors to detect who left
     previous_actors = set()
     if previous_scrape:
-        previous_actors = {member['actor'] for member in previous_scrape.get('cast', []) if 'actor' in member}
+        previous_actors = {m['actor'] for m in previous_scrape.get('cast', []) if 'actor' in m}
 
-    # Actors who left
     actors_left = previous_actors - set(current_actors.keys())
 
     # Update current actors
     for actor, role in current_actors.items():
         try:
-            # Check if actor-show relationship exists
             response = table.query(
-                KeyConditionExpression='PK = :pk AND begins_with(SK, :sk)',
-                ExpressionAttributeValues={
-                    ':pk': f"ACTOR#{actor}",
-                    ':sk': f"SHOW#{show_name}#"
-                },
+                KeyConditionExpression=(
+                    Key('PK').eq(f"ACTOR#{actor}") &
+                    Key('SK').begins_with(f"PRODUCTION#{production_id}#")
+                ),
                 Limit=1
             )
 
             if response.get('Items'):
-                # Relationship exists - update last_seen
                 existing = response['Items'][0]
                 roles = existing.get('roles', [])
-
                 if role not in roles:
                     roles.append(role)
-
                 table.update_item(
-                    Key={
-                        'PK': existing['PK'],
-                        'SK': existing['SK']
-                    },
-                    UpdateExpression='SET last_seen = :last_seen, roles = :roles, is_current = :current, appearance_count = appearance_count + :inc',
+                    Key={'PK': existing['PK'], 'SK': existing['SK']},
+                    UpdateExpression=(
+                        'SET last_seen = :ls, roles = :roles, '
+                        'is_current = :cur, appearance_count = appearance_count + :inc'
+                    ),
                     ExpressionAttributeValues={
-                        ':last_seen': scraped_at,
+                        ':ls': scraped_at,
                         ':roles': roles,
-                        ':current': Decimal(1),
+                        ':cur': Decimal(1),
                         ':inc': Decimal(1)
                     }
                 )
             else:
-                # New relationship - create entry
-                table.put_item(
-                    Item={
-                        'PK': f"ACTOR#{actor}",
-                        'SK': f"SHOW#{show_name}#JOINED#{scraped_at}",
-                        'actor_name': actor,
-                        'show_name': show_name,
-                        'roles': [role],
-                        'first_seen': scraped_at,
-                        'last_seen': scraped_at,
-                        'is_current': Decimal(1),
-                        'appearance_count': Decimal(1)
-                    }
-                )
+                item = {
+                    'PK': f"ACTOR#{actor}",
+                    'SK': f"PRODUCTION#{production_id}#JOINED#{scraped_at}",
+                    'actor_name': actor,
+                    'show_name': show_name,
+                    'show_slug': show_slug,
+                    'production_id': production_id,
+                    'roles': [role],
+                    'first_seen': scraped_at,
+                    'last_seen': scraped_at,
+                    'is_current': Decimal(1),
+                    'appearance_count': Decimal(1),
+                    'data_source': 'scrape'
+                }
+                for field in ('production_label', 'show_type', 'theatre', 'city'):
+                    if scrape.get(field):
+                        item[field] = scrape[field]
+                table.put_item(Item=item)
 
         except Exception as e:
             print(f"Error updating ActorIndex for {actor}: {e}")
 
-    # Mark actors who left as no longer current
+    # Mark actors who left
     for actor in actors_left:
         try:
             response = table.query(
-                KeyConditionExpression='PK = :pk AND begins_with(SK, :sk)',
-                ExpressionAttributeValues={
-                    ':pk': f"ACTOR#{actor}",
-                    ':sk': f"SHOW#{show_name}#"
-                },
+                KeyConditionExpression=(
+                    Key('PK').eq(f"ACTOR#{actor}") &
+                    Key('SK').begins_with(f"PRODUCTION#{production_id}#")
+                ),
+                Limit=1
+            )
+            if response.get('Items'):
+                existing = response['Items'][0]
+                table.update_item(
+                    Key={'PK': existing['PK'], 'SK': existing['SK']},
+                    UpdateExpression='SET is_current = :cur',
+                    ExpressionAttributeValues={':cur': Decimal(0)}
+                )
+        except Exception as e:
+            print(f"Error marking {actor} as not current: {e}")
+
+
+# ---------------------------------------------------------------------------
+# ShowIndex + ActorIndex writes — press_release path
+# ---------------------------------------------------------------------------
+
+def update_actor_index_from_press_release(scrape: Dict[str, Any]) -> None:
+    """
+    Update ActorIndex from a press-release scrape.
+
+    - Uses article_date (not scraped_at) for first_seen / last_seen
+    - Does NOT mark any other actors as is_current = 0
+    """
+    from boto3.dynamodb.conditions import Key
+    table = _actor_index()
+    production_id = scrape['production_id']
+    show_name = scrape['show_name']
+    show_slug = scrape.get('show_slug', '')
+    cast = scrape.get('cast', [])
+    article_date = scrape.get('article_date') or scrape['scraped_at']
+
+    for member in cast:
+        actor = member.get('actor')
+        role = member.get('role')
+        if not actor or not role:
+            continue
+
+        try:
+            response = table.query(
+                KeyConditionExpression=(
+                    Key('PK').eq(f"ACTOR#{actor}") &
+                    Key('SK').begins_with(f"PRODUCTION#{production_id}#")
+                ),
                 Limit=1
             )
 
             if response.get('Items'):
                 existing = response['Items'][0]
+                roles = existing.get('roles', [])
+                if role not in roles:
+                    roles.append(role)
+
+                cur_last = existing.get('last_seen', '')
+                new_last = article_date if article_date > cur_last else cur_last
+                cur_first = existing.get('first_seen', article_date)
+                new_first = article_date if article_date < cur_first else cur_first
+
                 table.update_item(
-                    Key={
-                        'PK': existing['PK'],
-                        'SK': existing['SK']
-                    },
-                    UpdateExpression='SET is_current = :current',
+                    Key={'PK': existing['PK'], 'SK': existing['SK']},
+                    UpdateExpression='SET last_seen = :ls, first_seen = :fs, roles = :roles',
                     ExpressionAttributeValues={
-                        ':current': Decimal(0)
+                        ':ls': new_last,
+                        ':fs': new_first,
+                        ':roles': roles
                     }
                 )
+            else:
+                item = {
+                    'PK': f"ACTOR#{actor}",
+                    'SK': f"PRODUCTION#{production_id}#JOINED#{article_date}",
+                    'actor_name': actor,
+                    'show_name': show_name,
+                    'show_slug': show_slug,
+                    'production_id': production_id,
+                    'roles': [role],
+                    'first_seen': article_date,
+                    'last_seen': article_date,
+                    'is_current': Decimal(0),
+                    'appearance_count': Decimal(1),
+                    'data_source': 'press_release'
+                }
+                for field in ('production_label', 'show_type', 'theatre', 'city'):
+                    if scrape.get(field):
+                        item[field] = scrape[field]
+                table.put_item(Item=item)
 
         except Exception as e:
-            print(f"Error marking {actor} as not current: {e}")
+            print(f"Error updating ActorIndex (press release) for {actor}: {e}")
 
+
+def update_show_index_from_press_release(scrape: Dict[str, Any]) -> None:
+    """
+    Update ShowIndex from a press-release scrape (non-partial casts only).
+
+    - PRODUCTION#/CURRENT only if no scrape-sourced CURRENT exists
+    - SHOW#/PRODUCTION# summary only if no scrape-sourced summary exists
+    - Always adds ACTOR# history entries using article_date
+    """
+    from boto3.dynamodb.conditions import Key
+    table = _show_index()
+    production_id = scrape['production_id']
+    show_name = scrape['show_name']
+    show_slug = scrape.get('show_slug', '')
+    cast = scrape.get('cast', [])
+    article_date = scrape.get('article_date') or scrape['scraped_at']
+
+    # --- PRODUCTION# / CURRENT ---
+    try:
+        resp = table.get_item(Key={'PK': f"PRODUCTION#{production_id}", 'SK': 'CURRENT'})
+        existing_current = resp.get('Item')
+    except Exception as e:
+        print(f"Error reading CURRENT for {production_id}: {e}")
+        existing_current = None
+
+    if existing_current is None or existing_current.get('data_source') == 'press_release':
+        current_item = {
+            'PK': f"PRODUCTION#{production_id}",
+            'SK': 'CURRENT',
+            'cast': cast,
+            'last_updated': article_date,
+            'cast_count': len(cast),
+            'data_source': 'press_release',
+            'show_name': show_name,
+            'show_slug': show_slug,
+        }
+        for field in ('production_label', 'show_type', 'theatre', 'city', 'production_company'):
+            if scrape.get(field):
+                current_item[field] = scrape[field]
+        table.put_item(Item={k: v for k, v in current_item.items() if v is not None})
+
+    # --- SHOW# / PRODUCTION# summary ---
+    try:
+        resp = table.get_item(Key={
+            'PK': f"SHOW#{show_slug}",
+            'SK': f"PRODUCTION#{production_id}"
+        })
+        existing_summary = resp.get('Item')
+    except Exception as e:
+        print(f"Error reading SHOW# summary for {production_id}: {e}")
+        existing_summary = None
+
+    if existing_summary is None or existing_summary.get('data_source') == 'press_release':
+        summary = {
+            'PK': f"SHOW#{show_slug}",
+            'SK': f"PRODUCTION#{production_id}",
+            'production_id': production_id,
+            'show_name': show_name,
+            'show_slug': show_slug,
+            'cast_count': len(cast),
+            'last_updated': article_date,
+            'data_source': 'press_release',
+        }
+        for field in ('production_label', 'show_type', 'theatre', 'city', 'production_company'):
+            if scrape.get(field):
+                summary[field] = scrape[field]
+        table.put_item(Item=summary)
+
+    # --- Per-actor history ---
+    for member in cast:
+        actor = member.get('actor')
+        role = member.get('role')
+        if not actor or not role:
+            continue
+
+        try:
+            response = table.query(
+                KeyConditionExpression=(
+                    Key('PK').eq(f"PRODUCTION#{production_id}") &
+                    Key('SK').begins_with(f"ACTOR#{actor}#")
+                ),
+                Limit=1
+            )
+
+            if response.get('Items'):
+                existing = response['Items'][0]
+                roles = existing.get('roles', [])
+                if role not in roles:
+                    roles.append(role)
+
+                cur_last = existing.get('last_seen', '')
+                new_last = article_date if article_date > cur_last else cur_last
+                table.update_item(
+                    Key={'PK': existing['PK'], 'SK': existing['SK']},
+                    UpdateExpression='SET last_seen = :ls, roles = :roles',
+                    ExpressionAttributeValues={':ls': new_last, ':roles': roles}
+                )
+            else:
+                table.put_item(Item={
+                    'PK': f"PRODUCTION#{production_id}",
+                    'SK': f"ACTOR#{actor}#{article_date}",
+                    'actor_name': actor,
+                    'roles': [role],
+                    'first_seen': article_date,
+                    'last_seen': article_date,
+                    'is_current': False,
+                    'data_source': 'press_release'
+                })
+
+        except Exception as e:
+            print(f"Error updating ShowIndex history (press release) for {actor}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
 
 def send_alert(subject: str, message: str) -> None:
-    """Send SNS alert."""
     try:
         sns.publish(
             TopicArn=ALERT_TOPIC_ARN,
@@ -303,64 +537,82 @@ def send_alert(subject: str, message: str) -> None:
         print(f"Failed to send alert: {e}")
 
 
-def lambda_handler(event, context):
-    """
-    Lambda handler triggered by DynamoDB Streams.
+# ---------------------------------------------------------------------------
+# Handler
+# ---------------------------------------------------------------------------
 
-    Event contains INSERT records for new scrapes with status="success".
-    """
+def lambda_handler(event, context):
+    """Lambda handler triggered by DynamoDB Streams."""
     print(f"Received {len(event['Records'])} DynamoDB stream records")
 
     for record in event['Records']:
         try:
-            # Only process INSERT events
             if record['eventName'] != 'INSERT':
                 continue
 
-            # Parse new scrape
             new_image = record['dynamodb']['NewImage']
-            scrape = json.loads(json.dumps(new_image), parse_float=Decimal)
 
-            # Convert DynamoDB format to regular dict
             from boto3.dynamodb.types import TypeDeserializer
             deserializer = TypeDeserializer()
             scrape = {k: deserializer.deserialize(v) for k, v in new_image.items()}
 
-            show_name = scrape['show_name']
-            print(f"Processing scrape for {show_name}")
+            pk = scrape.get('PK', '')
 
-            # Get previous scrape
-            previous_scrape = get_previous_scrape(show_name)
-
-            # Validate data quality
-            validation = validate_data_quality(scrape, previous_scrape)
-
-            if not validation['should_update_indexes']:
-                # Send alert for suspicious data
-                send_alert(
-                    f"Data Quality Issue: {show_name}",
-                    f"Show: {show_name}\n"
-                    f"Warnings: {', '.join(validation['warnings'])}\n"
-                    f"Changes: {json.dumps(validation['changes'], indent=2)}\n"
-                    f"Time: {scrape['scraped_at']}\n\n"
-                    f"Indexes NOT updated - requires manual review."
-                )
-                print(f"Skipping index updates for {show_name} due to data quality issues")
+            # Skip old-schema items (PK = SHOW#...) — handled by migration
+            if not pk.startswith('PRODUCTION#'):
+                print(f"Skipping old-schema item (PK={pk}) — awaiting migration")
                 continue
 
-            # Update indexes
-            update_show_index(scrape)
-            update_actor_index(scrape, previous_scrape)
+            # Only process actual scrape records, not CURRENT / ACTOR# history writes
+            sk = scrape.get('SK', '')
+            if not sk.startswith('SCRAPE#'):
+                continue
 
-            print(f"Successfully updated indexes for {show_name}")
+            production_id = scrape.get('production_id') or pk.removeprefix('PRODUCTION#')
+            show_name = scrape.get('show_name', '')
+            source_type = scrape.get('source_type', 'cast_list_page')
+            is_partial = scrape.get('is_partial_cast', False)
 
-            # Send informational alert for significant changes
-            changes = validation['changes']
-            if changes['type'] == 'normal' and (changes.get('actors_joined') or changes.get('actors_left')):
-                if len(changes.get('actors_joined', [])) > 3 or len(changes.get('actors_left', [])) > 3:
+            print(f"Processing scrape for {show_name} / {production_id} "
+                  f"(source_type={source_type}, is_partial={is_partial})")
+
+            if source_type == 'press_release':
+                update_actor_index_from_press_release(scrape)
+                if not is_partial:
+                    update_show_index_from_press_release(scrape)
+                print(f"Updated indexes from press release for {production_id}")
+
+            else:
+                # cast_list_page path — with data quality validation
+                previous_scrape = get_previous_scrape(production_id)
+                validation = validate_data_quality(scrape, previous_scrape)
+
+                if not validation['should_update_indexes']:
+                    send_alert(
+                        f"Data Quality Issue: {show_name}",
+                        f"Show: {show_name}\n"
+                        f"Production: {production_id}\n"
+                        f"Warnings: {', '.join(validation['warnings'])}\n"
+                        f"Changes: {json.dumps(validation['changes'], indent=2)}\n"
+                        f"Time: {scrape['scraped_at']}\n\n"
+                        f"Indexes NOT updated — requires manual review."
+                    )
+                    print(f"Skipping index updates for {production_id} due to data quality issues")
+                    continue
+
+                update_show_index(scrape)
+                update_actor_index(scrape, previous_scrape)
+                print(f"Updated indexes for {production_id}")
+
+                changes = validation['changes']
+                if changes['type'] == 'normal' and (
+                    len(changes.get('actors_joined', [])) > 3 or
+                    len(changes.get('actors_left', [])) > 3
+                ):
                     send_alert(
                         f"Significant Cast Changes: {show_name}",
                         f"Show: {show_name}\n"
+                        f"Production: {production_id}\n"
                         f"Actors joined: {', '.join(changes.get('actors_joined', [])) or 'None'}\n"
                         f"Actors left: {', '.join(changes.get('actors_left', [])) or 'None'}\n"
                         f"Overlap: {changes.get('overlap_pct')}%\n"
@@ -371,7 +623,6 @@ def lambda_handler(event, context):
             print(f"Error processing stream record: {e}")
             import traceback
             traceback.print_exc()
-            # Don't re-raise - we don't want to block other records
 
     return {
         "statusCode": 200,

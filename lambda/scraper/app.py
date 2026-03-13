@@ -96,16 +96,28 @@ def scrape_show(job: Dict[str, Any]) -> Dict[str, Any]:
     Scrape a single show's cast page.
 
     Args:
-        job: {"show_name": str, "url": str, "selectors": {...}}
+        job: {
+            "production_id": str, "show_name": str, "show_slug": str,
+            "url": str, "selectors": {...},
+            "theatre": str, "city": str,
+            "production_label": str, "show_type": str, "production_company": str
+        }
 
     Returns:
         Scrape result dict ready for DynamoDB
     """
+    production_id = job['production_id']
     show_name = job['show_name']
+    show_slug = job['show_slug']
     url = job['url']
     selectors = job.get('selectors', {})
+    theatre = job.get('theatre')
+    city = job.get('city')
+    production_label = job.get('production_label')
+    show_type = job.get('show_type')
+    production_company = job.get('production_company')
 
-    print(f"Scraping {show_name} from {url}")
+    print(f"Scraping {show_name} ({production_id}) from {url}")
 
     try:
         # Initialize scraper
@@ -124,17 +136,28 @@ def scrape_show(job: Dict[str, Any]) -> Dict[str, Any]:
         # Validate results
         validation = validate_scrape_result(cast, show_name)
 
+        base_result = {
+            "production_id": production_id,
+            "show_name": show_name,
+            "show_slug": show_slug,
+            "source_url": url,
+            "scraped_at": datetime.now(timezone.utc).isoformat(),
+            "theatre": theatre,
+            "city": city,
+            "production_label": production_label,
+            "show_type": show_type,
+            "production_company": production_company,
+            "scraper_version": SCRAPER_VERSION,
+        }
+
         if not validation['valid']:
             print(f"Validation failed: {validation['errors']}")
             return {
-                "show_name": show_name,
-                "source_url": url,
-                "scraped_at": datetime.now(timezone.utc).isoformat(),
+                **base_result,
                 "scrape_status": "validation_failed",
                 "error_msg": f"Validation errors: {', '.join(validation['errors'])}",
                 "cast": cast,
                 "cast_count": len(cast),
-                "scraper_version": SCRAPER_VERSION
             }
 
         if validation['warnings']:
@@ -142,14 +165,11 @@ def scrape_show(job: Dict[str, Any]) -> Dict[str, Any]:
 
         # Success!
         return {
-            "show_name": show_name,
-            "source_url": url,
-            "scraped_at": datetime.now(timezone.utc).isoformat(),
+            **base_result,
             "scrape_status": "success",
             "cast": cast,
             "cast_count": len(cast),
-            "scraper_version": SCRAPER_VERSION,
-            "validation_warnings": validation['warnings'] if validation['warnings'] else None
+            "validation_warnings": validation['warnings'] if validation['warnings'] else None,
         }
 
     except Exception as e:
@@ -157,14 +177,21 @@ def scrape_show(job: Dict[str, Any]) -> Dict[str, Any]:
         traceback.print_exc()
 
         return {
+            "production_id": production_id,
             "show_name": show_name,
+            "show_slug": show_slug,
             "source_url": url,
             "scraped_at": datetime.now(timezone.utc).isoformat(),
             "scrape_status": "failed",
             "error_msg": str(e),
             "cast": [],
             "cast_count": 0,
-            "scraper_version": SCRAPER_VERSION
+            "theatre": theatre,
+            "city": city,
+            "production_label": production_label,
+            "show_type": show_type,
+            "production_company": production_company,
+            "scraper_version": SCRAPER_VERSION,
         }
 
 
@@ -172,15 +199,15 @@ def write_to_dynamodb(result: Dict[str, Any]) -> None:
     """Write scrape result to DynamoDB."""
     table = dynamodb.Table(SCRAPES_TABLE)
 
-    # Construct item
     scraped_at = result['scraped_at']
-    show_name = result['show_name']
+    production_id = result['production_id']
     date_str = scraped_at.split('T')[0]  # YYYY-MM-DD
 
     item = {
-        'PK': f"SHOW#{show_name}",
+        'PK': f"PRODUCTION#{production_id}",
         'SK': f"SCRAPE#{scraped_at}",
         'date_key': f"DATE#{date_str}",
+        'source_type': 'cast_list_page',
         **result
     }
 

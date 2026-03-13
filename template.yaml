@@ -34,10 +34,19 @@ Parameters:
       - "false"
     Description: Enable daily scraping schedule (true for prod, false for dev)
 
+  PressReleaseScheduleEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enable daily press release ingestion schedule
+
 Conditions:
   IsProd: !Equals [!Ref Environment, prod]
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
   ScheduleIsEnabled: !Equals [!Ref ScheduleEnabled, "true"]
+  PressReleaseScheduleIsEnabled: !Equals [!Ref PressReleaseScheduleEnabled, "true"]
 
 Globals:
   Function:
@@ -294,7 +303,7 @@ Resources:
         Variables:
           QUEUE_URL: !Ref ScrapeJobsQueue
           SITES_CONFIG_S3_BUCKET: !Ref SitesConfigBucket
-          SITES_CONFIG_S3_KEY: west_end.json
+          SITES_CONFIG_S3_KEY: scrape_config.json
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt ScrapeJobsQueue.QueueName
@@ -340,6 +349,127 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
+
+  # ==================== Press Release Pipeline ====================
+
+  PressReleasesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub WestEndPressReleases-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: WestEndScraper
+
+  PressReleaseContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub west-end-press-releases-${Environment}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: WestEndScraper
+
+  PressReleaseIngesterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub west-end-press-release-ingester-${Environment}
+      CodeUri: lambda/press_release_ingester/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 900
+      Environment:
+        Variables:
+          PRESS_RELEASES_TABLE: !Ref PressReleasesTable
+          SCRAPES_TABLE: !Ref ScrapesTable
+          SHOW_INDEX_TABLE: !Ref ShowIndexTable
+          PRESS_RELEASE_CONTENT_BUCKET: !Ref PressReleaseContentBucket
+          SITES_CONFIG_S3_BUCKET: !Ref SitesConfigBucket
+          PRESS_RELEASE_SOURCES_S3_KEY: press_release_sources.json
+          SHOWS_CONFIG_S3_KEY: shows.json
+          ANTHROPIC_API_KEY_SECRET: !Ref AnthropicApiKeySecretName
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PressReleasesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScrapesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShowIndexTable
+        - S3CrudPolicy:
+            BucketName: !Ref PressReleaseContentBucket
+        - S3ReadPolicy:
+            BucketName: !Ref SitesConfigBucket
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertTopic.TopicName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}*'
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn: !Ref AlertTopic
+
+  PressReleaseSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: PressReleaseScheduleIsEnabled
+    Properties:
+      Name: !Sub west-end-press-release-daily-${Environment}
+      Description: Trigger daily press release ingestion (after main scraper)
+      ScheduleExpression: cron(0 7 * * ? *)  # 7 AM UTC daily
+      ScheduleExpressionTimezone: UTC
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: ENABLED
+      Target:
+        Arn: !GetAtt PressReleaseIngesterFunction.Arn
+        RoleArn: !GetAtt PressReleaseScheduleExecutionRole.Arn
+
+  PressReleaseScheduleExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: PressReleaseScheduleIsEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokePressReleaseIngester
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt PressReleaseIngesterFunction.Arn
 
   # ==================== CloudWatch Alarms ====================
 
@@ -577,3 +707,17 @@ Outputs:
   ApiUrl:
     Description: HTTP API Gateway URL (use as VITE_API_URL for local dev)
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  PressReleasesTableName:
+    Description: DynamoDB table for press release deduplication
+    Value: !Ref PressReleasesTable
+    Export:
+      Name: !Sub ${AWS::StackName}-PressReleasesTable
+
+  PressReleaseContentBucketName:
+    Description: S3 bucket for raw press release HTML
+    Value: !Ref PressReleaseContentBucket
+
+  PressReleaseIngesterFunctionArn:
+    Description: Lambda function ARN for press release ingester
+    Value: !GetAtt PressReleaseIngesterFunction.Arn

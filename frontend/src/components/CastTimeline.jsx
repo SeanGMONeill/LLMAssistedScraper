@@ -21,10 +21,12 @@ export default function CastTimeline({ history }) {
               <Link to={`/actors/${encodeURIComponent(entry.actor_name)}`}>
                 {entry.actor_name}
               </Link>
-              {' '}
               <span className={`badge ${entry.is_current ? 'badge-current' : 'badge-past'}`}>
                 {entry.is_current ? 'Current' : 'Past'}
               </span>
+              {entry.data_source === 'press_release' && (
+                <span className="pill pill-press">Press</span>
+              )}
             </div>
             <div className="timeline-actor-role">{entry.roles.join(', ')}</div>
           </div>

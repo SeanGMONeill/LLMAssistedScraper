@@ -1,6 +1,6 @@
 """
 Lambda function triggered by EventBridge scheduler.
-Loads sites configuration and sends scraping jobs to SQS.
+Loads productions configuration and sends scraping jobs to SQS.
 """
 
 import json
@@ -22,23 +22,23 @@ ALERT_TOPIC_ARN = os.environ['ALERT_TOPIC_ARN']
 ENVIRONMENT = os.environ['ENVIRONMENT']
 
 
-def load_sites_config() -> Dict[str, Any]:
-    """Load sites configuration from S3."""
+def load_productions_config() -> Dict[str, Any]:
+    """Load scrape configuration from S3."""
     try:
         response = s3.get_object(
             Bucket=SITES_CONFIG_S3_BUCKET,
             Key=SITES_CONFIG_S3_KEY
         )
         config = json.loads(response['Body'].read().decode('utf-8'))
-        print(f"Loaded sites config with {len(config.get('sites', []))} sites")
+        print(f"Loaded scrape config with {len(config.get('productions', []))} productions")
         return config
 
     except Exception as e:
-        print(f"Error loading sites config from S3: {e}")
+        print(f"Error loading scrape config from S3: {e}")
         raise
 
 
-def send_scrape_jobs(sites: List[Dict[str, Any]]) -> Dict[str, int]:
+def send_scrape_jobs(productions: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Send scraping jobs to SQS.
 
@@ -48,12 +48,19 @@ def send_scrape_jobs(sites: List[Dict[str, Any]]) -> Dict[str, int]:
     sent = 0
     failed = 0
 
-    for site in sites:
+    for prod in productions:
         try:
             message = {
-                "show_name": site['name'],
-                "url": site['url'],
-                "selectors": site.get('selectors', {})
+                "production_id": prod['production_id'],
+                "show_name": prod['show_name'],
+                "show_slug": prod['show_slug'],
+                "url": prod['scrape_url'],
+                "selectors": prod.get('selectors', {}),
+                "theatre": prod.get('theatre'),
+                "city": prod.get('city'),
+                "production_label": prod.get('production_label'),
+                "show_type": prod.get('show_type'),
+                "production_company": prod.get('production_company'),
             }
 
             sqs.send_message(
@@ -61,17 +68,17 @@ def send_scrape_jobs(sites: List[Dict[str, Any]]) -> Dict[str, int]:
                 MessageBody=json.dumps(message),
                 MessageAttributes={
                     'show_name': {
-                        'StringValue': site['name'],
+                        'StringValue': prod['show_name'],
                         'DataType': 'String'
                     }
                 }
             )
 
             sent += 1
-            print(f"Queued scrape job for {site['name']}")
+            print(f"Queued scrape job for {prod['show_name']} ({prod['production_id']})")
 
         except Exception as e:
-            print(f"Failed to queue job for {site['name']}: {e}")
+            print(f"Failed to queue job for {prod.get('show_name', '?')}: {e}")
             failed += 1
 
     return {"sent": sent, "failed": failed}
@@ -91,28 +98,15 @@ def send_alert(subject: str, message: str) -> None:
 
 
 def lambda_handler(event, context):
-    """
-    Lambda handler triggered by EventBridge scheduler.
-
-    Event structure (from EventBridge):
-    {
-        "version": "0",
-        "id": "...",
-        "detail-type": "Scheduled Event",
-        "source": "aws.scheduler",
-        "time": "2026-03-01T06:00:00Z",
-        ...
-    }
-    """
+    """Lambda handler triggered by EventBridge scheduler."""
     print(f"Starting daily scrape job at {datetime.now(timezone.utc).isoformat()}")
 
     try:
-        # Load sites configuration
-        config = load_sites_config()
-        sites = config.get('sites', [])
+        config = load_productions_config()
+        productions = config.get('productions', [])
 
-        if not sites:
-            error_msg = "No sites found in configuration"
+        if not productions:
+            error_msg = "No productions found in configuration"
             print(error_msg)
             send_alert("Scrape Job Failed", error_msg)
             return {
@@ -120,18 +114,18 @@ def lambda_handler(event, context):
                 "body": json.dumps({"error": error_msg})
             }
 
-        # Send jobs to SQS
-        result = send_scrape_jobs(sites)
+        enabled = [p for p in productions if p.get('enabled', True)]
+        print(f"Enabled productions: {len(enabled)} / {len(productions)}")
 
+        result = send_scrape_jobs(enabled)
         print(f"Queued {result['sent']} scrape jobs, {result['failed']} failed")
 
-        # Send summary alert if any failures
         if result['failed'] > 0:
             send_alert(
                 "Scrape Job Queueing Issues",
                 f"Successfully queued: {result['sent']}\n"
                 f"Failed to queue: {result['failed']}\n"
-                f"Total sites: {len(sites)}\n"
+                f"Enabled productions: {len(enabled)}\n"
                 f"Time: {datetime.now(timezone.utc).isoformat()}"
             )
 
@@ -140,7 +134,8 @@ def lambda_handler(event, context):
             "body": json.dumps({
                 "queued": result['sent'],
                 "failed": result['failed'],
-                "total_sites": len(sites),
+                "enabled_productions": len(enabled),
+                "total_productions": len(productions),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
         }

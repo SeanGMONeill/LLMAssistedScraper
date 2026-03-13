@@ -2,105 +2,156 @@
   "schema": "schemas/cast_lists.json",
   "id": "west_end_theatres",
   "description": "West End theatre cast pages for AWS scraping infrastructure",
-  "version": "1.0.0",
-  "last_updated": "2026-03-01",
+  "version": "1.1.0",
+  "last_updated": "2026-03-13",
   "sites": [
     {
       "name": "Wicked",
       "url": "https://www.wickedthemusical.co.uk/cast-creative/#cast",
       "id": "wicked",
+      "theatre": "Apollo Victoria Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Book of Mormon",
       "url": "https://thebookofmormonmusical.com/london/show/",
       "id": "book_of_mormon",
+      "theatre": "Prince of Wales Theatre",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "West End run closed",
       "selectors": {}
     },
     {
       "name": "Stranger Things: The First Shadow",
       "url": "http://uk.strangerthingsonstage.com/creative-team/",
       "id": "stranger_things",
+      "theatre": "Phoenix Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Hamilton",
       "url": "https://hamiltonmusical.com/london/",
       "id": "hamilton",
+      "theatre": "Victoria Palace Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "The Lion King",
       "url": "https://www.thelionking.co.uk/cast-and-creatives",
       "id": "lion_king",
+      "theatre": "Lyceum Theatre",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "Akamai hard block on AWS IPs",
       "selectors": {}
     },
     {
       "name": "Les Miserables",
       "url": "https://www.lesmis.com/uk/cast-creatives/",
       "id": "les_miserables",
+      "theatre": "Sondheim Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "The Phantom of the Opera",
       "url": "https://thephantomoftheopera.com/london/cast/",
       "id": "phantom",
+      "theatre": "His Majesty's Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Mamma Mia",
       "url": "https://www.mamma-mia.com/london/cast-creative",
       "id": "mamma_mia",
+      "theatre": "Novello Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Matilda The Musical",
       "url": "https://uk.matildathemusical.com/cast-and-creatives/",
       "id": "matilda",
+      "theatre": "Cambridge Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "SIX",
       "url": "https://www.sixthemusical.com/london/",
       "id": "six",
+      "theatre": "Vaudeville Theatre",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "CDN block; moved to UK tour",
       "selectors": {}
     },
     {
       "name": "Moulin Rouge",
       "url": "https://moulinrougemusical.co.uk/cast-and-creative/",
       "id": "moulin_rouge",
+      "theatre": "Piccadilly Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Back to the Future",
       "url": "https://www.bttfmusical.co.uk/cast-creatives",
       "id": "back_to_the_future",
+      "theatre": "Adelphi Theatre",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "Website down",
       "selectors": {}
     },
     {
       "name": "Chicago",
       "url": "https://www.chicagothemusical.com/london/cast",
       "id": "chicago",
+      "theatre": "Phoenix Theatre",
+      "city": "London",
       "selectors": {}
     },
     {
       "name": "Frozen",
       "url": "https://frozenthemusical.co.uk/cast-and-creatives/",
       "id": "frozen",
+      "theatre": "Theatre Royal Drury Lane",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "Domain redirected to Disney tickets",
       "selectors": {}
     },
     {
       "name": "The Play That Goes Wrong",
       "url": "https://www.theplaythatgoeswrong.com/london/cast-creative",
       "id": "play_goes_wrong",
+      "theatre": "Duchess Theatre",
+      "city": "London",
+      "enabled": false,
+      "disabled_reason": "CDN block",
+      "selectors": {}
+    },
+    {
+      "name": "Harry Potter and the Cursed Child",
+      "url": "https://www.harrypottertheplay.com/gb/cast-creative/",
+      "id": "harry_potter",
+      "theatre": "Palace Theatre",
+      "city": "London",
       "selectors": {}
     }
   ],
   "notes": [
-    "This is a starter configuration with 15 West End shows",
+    "This is a starter configuration with West End shows",
     "Expand to 50+ shows through manual curation",
     "selectors are optional - the LLM can extract without them",
     "URLs should point to official cast pages",
-    "Update this file and upload to S3 to add/remove shows"
+    "Update this file and upload to S3 to add/remove shows",
+    "enabled: false shows are kept for historical reference"
   ]
 }

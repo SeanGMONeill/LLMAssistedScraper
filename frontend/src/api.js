@@ -10,5 +10,6 @@ async function request(path) {
 }
 
 export const getShows = () => request('/shows')
-export const getShow = (name) => request(`/shows/${encodeURIComponent(name)}`)
+export const getProduction = (showSlug, productionId) =>
+  request(`/shows/${encodeURIComponent(showSlug)}/${encodeURIComponent(productionId)}`)
 export const getActor = (name) => request(`/actors/${encodeURIComponent(name)}`)

@@ -9,7 +9,7 @@ export default function Home() {
 
   useEffect(() => {
     getShows()
-      .then(data => setShows(data.shows))
+      .then(data => setShows(data.productions))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
@@ -20,12 +20,12 @@ export default function Home() {
   return (
     <div>
       <div className="page-header">
-        <h1>West End Shows</h1>
-        <p className="subtitle">{shows.length} shows tracked</p>
+        <h1>UK Theatre</h1>
+        <p className="subtitle">{shows.length} productions tracked</p>
       </div>
       <div className="shows-grid">
-        {shows.map(show => (
-          <ShowCard key={show.name} show={show} />
+        {shows.map(prod => (
+          <ShowCard key={prod.production_id} production={prod} />
         ))}
       </div>
     </div>
