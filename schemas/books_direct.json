@@ -1,0 +1,13 @@
+{
+  "prompt": [
+    {
+      "role": "system",
+      "content": "You are a web scraping assistant that extracts structured book information from e-commerce websites. You analyze markdown-formatted web pages and return accurate, structured JSON data."
+    },
+    {
+      "role": "user",
+      "content": "Analyze the markdown content below and extract information about ALL books visible on the page.\n\nReturn a JSON array of book objects. Each object should have:\n- \"title\" (string): The book title\n- \"author\" (string): The primary author name\n- \"isbn\" (string or null): ISBN-13 if visible\n- \"cost\" (string or null): Price with currency symbol (e.g., \"£12.99\")\n\nRules:\n- Extract ONLY books, not bundles, recommendations, or related items\n- If multiple formats exist (hardback/paperback), extract each as a separate entry\n- Return only valid JSON, no commentary\n- If no books found, return empty array: []\n\nMarkdown content:"
+    }
+  ],
+  "attributes": ["title", "author", "isbn", "cost"]
+}
