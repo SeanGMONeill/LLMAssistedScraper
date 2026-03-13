@@ -27,7 +27,8 @@ export default function ActorProfile() {
   if (error) return <div className="status-message error">Error: {error}</div>
   if (!actor) return <div className="status-message error">Actor not found.</div>
 
-  const currentShows = actor.shows.filter(s => s.is_current)
+  const productions = actor.productions || []
+  const currentProductions = productions.filter(p => p.is_current)
 
   return (
     <div>
@@ -35,14 +36,14 @@ export default function ActorProfile() {
         <Link to="/" className="back-link">← All Shows</Link>
         <h1>{actor.name}</h1>
         <p className="subtitle">
-          {currentShows.length > 0
-            ? `Currently in ${currentShows.map(s => s.show_name).join(', ')}`
-            : 'Former West End performer'}
+          {currentProductions.length > 0
+            ? `Currently in ${currentProductions.map(p => p.show_name).join(', ')}`
+            : 'Former theatre performer'}
         </p>
       </div>
 
       <section>
-        <h2>Show History</h2>
+        <h2>Production History</h2>
         <div className="table-container">
           <table>
             <thead>
@@ -55,19 +56,19 @@ export default function ActorProfile() {
               </tr>
             </thead>
             <tbody>
-              {actor.shows.map((s, i) => (
+              {productions.map((p, i) => (
                 <tr key={i}>
                   <td>
-                    <Link to={`/shows/${encodeURIComponent(s.show_name)}`}>
-                      {s.show_name}
+                    <Link to={`/shows/${encodeURIComponent(p.show_slug)}/${encodeURIComponent(p.production_id)}`}>
+                      {p.show_name}{p.production_label ? ` — ${p.production_label}` : ''}
                     </Link>
                   </td>
-                  <td>{s.roles.join(', ')}</td>
-                  <td>{formatDate(s.first_seen)}</td>
-                  <td>{formatDate(s.last_seen)}</td>
+                  <td>{p.roles.join(', ')}</td>
+                  <td>{formatDate(p.first_seen)}</td>
+                  <td>{formatDate(p.last_seen)}</td>
                   <td>
-                    <span className={`badge ${s.is_current ? 'badge-current' : 'badge-past'}`}>
-                      {s.is_current ? 'Current' : 'Past'}
+                    <span className={`badge ${p.is_current ? 'badge-current' : 'badge-past'}`}>
+                      {p.is_current ? 'Current' : 'Past'}
                     </span>
                   </td>
                 </tr>

@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Canonical show identities and aliases for name normalisation. Only add entries where auto-slugification would produce the wrong result or common abbreviations are in use.",
+  "shows": [
+    {
+      "show_slug": "hamilton",
+      "canonical_name": "Hamilton",
+      "aliases": ["Hamilton London", "Hamilton The Musical", "Hamilton!"]
+    },
+    {
+      "show_slug": "les-miserables",
+      "canonical_name": "Les Misérables",
+      "aliases": ["Les Mis", "Les Miserables", "Les Misérables", "Les Miserable"]
+    },
+    {
+      "show_slug": "phantom-of-the-opera",
+      "canonical_name": "The Phantom of the Opera",
+      "aliases": ["Phantom", "POTO", "Phantom of the Opera", "The Phantom"]
+    },
+    {
+      "show_slug": "matilda",
+      "canonical_name": "Matilda The Musical",
+      "aliases": ["Matilda", "Roald Dahl's Matilda"]
+    },
+    {
+      "show_slug": "mamma-mia",
+      "canonical_name": "Mamma Mia!",
+      "aliases": ["Mamma Mia", "Mamma Mia! The Musical"]
+    },
+    {
+      "show_slug": "moulin-rouge",
+      "canonical_name": "Moulin Rouge! The Musical",
+      "aliases": ["Moulin Rouge", "Moulin Rouge The Musical"]
+    },
+    {
+      "show_slug": "stranger-things-the-first-shadow",
+      "canonical_name": "Stranger Things: The First Shadow",
+      "aliases": ["Stranger Things", "Stranger Things The First Shadow"]
+    },
+    {
+      "show_slug": "harry-potter-and-the-cursed-child",
+      "canonical_name": "Harry Potter and the Cursed Child",
+      "aliases": ["Harry Potter", "Cursed Child", "HPATCC", "Harry Potter Cursed Child"]
+    },
+    {
+      "show_slug": "the-lion-king",
+      "canonical_name": "The Lion King",
+      "aliases": ["Lion King"]
+    },
+    {
+      "show_slug": "six",
+      "canonical_name": "SIX",
+      "aliases": ["Six", "Six the Musical", "SIX the Musical"]
+    },
+    {
+      "show_slug": "the-book-of-mormon",
+      "canonical_name": "The Book of Mormon",
+      "aliases": ["Book of Mormon", "The Book Of Mormon"]
+    },
+    {
+      "show_slug": "back-to-the-future",
+      "canonical_name": "Back to the Future: The Musical",
+      "aliases": ["Back to the Future", "BTTF", "Back to the Future The Musical"]
+    },
+    {
+      "show_slug": "frozen",
+      "canonical_name": "Frozen The Musical",
+      "aliases": ["Frozen", "Disney's Frozen"]
+    },
+    {
+      "show_slug": "the-play-that-goes-wrong",
+      "canonical_name": "The Play That Goes Wrong",
+      "aliases": ["Play That Goes Wrong", "PTGW"]
+    }
+  ]
+}

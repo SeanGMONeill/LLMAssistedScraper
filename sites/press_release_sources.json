@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.2.0",
+  "description": "Press release news sources for UK theatre cast announcements",
+  "last_updated": "2026-03-13",
+  "sources": [
+    {
+      "id": "sonia-friedman",
+      "name": "Sonia Friedman Productions",
+      "production_company": "Sonia Friedman Productions",
+      "domain": "soniafriedman.com",
+      "fetch_type": "sitemap",
+      "sitemap_url": "https://www.soniafriedman.com/dynamic-news-sitemap.xml",
+      "enabled": true,
+      "notes": "Wix site. Sitemap has 674+ articles with lastmod dates. URL slugs are descriptive."
+    },
+    {
+      "id": "cameron-mackintosh",
+      "name": "Cameron Mackintosh Ltd",
+      "production_company": "Cameron Mackintosh Ltd",
+      "domain": "cameronmackintosh.com",
+      "fetch_type": "sitemap",
+      "sitemap_url": "https://www.cameronmackintosh.com/sitemap.xml",
+      "enabled": true,
+      "notes": "29 news articles in sitemap. Previously thought JS-rendered but plain requests works fine."
+    },
+    {
+      "id": "really-useful-group",
+      "name": "The Really Useful Group",
+      "production_company": "The Really Useful Group",
+      "domain": "reallyuseful.com",
+      "fetch_type": "html_index",
+      "news_index_url": "https://www.reallyuseful.com/news",
+      "pagination": {
+        "type": "query_param",
+        "param": "page",
+        "start": 1,
+        "max_pages": 30
+      },
+      "enabled": false,
+      "disabled_reason": "Expired SSL certificate as of 2026-03-13"
+    }
+  ],
+  "notes": [
+    "fetch_type: 'sitemap' — fetch sitemap XML, parse <loc> + <lastmod>. Best for Wix/WordPress with news sitemaps.",
+    "fetch_type: 'html_index' — paginate HTML news index, parse article links. Fallback for sites without sitemaps.",
+    "production_company — used as metadata on auto-discovered productions from this source.",
+    "Add new sources here and upload to S3 — no code changes needed."
+  ]
+}
